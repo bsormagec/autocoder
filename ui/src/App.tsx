@@ -1,6 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useProjects, useFeatures } from './hooks/useProjects'
 import { useProjectWebSocket } from './hooks/useWebSocket'
+import { useFeatureSound } from './hooks/useFeatureSound'
+
+const STORAGE_KEY = 'autonomous-coder-selected-project'
 import { ProjectSelector } from './components/ProjectSelector'
 import { KanbanBoard } from './components/KanbanBoard'
 import { AgentControl } from './components/AgentControl'
@@ -13,7 +16,14 @@ import { Plus, Loader2 } from 'lucide-react'
 import type { Feature } from './lib/types'
 
 function App() {
-  const [selectedProject, setSelectedProject] = useState<string | null>(null)
+  // Initialize selected project from localStorage
+  const [selectedProject, setSelectedProject] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY)
+    } catch {
+      return null
+    }
+  })
   const [showAddFeature, setShowAddFeature] = useState(false)
   const [selectedFeature, setSelectedFeature] = useState<Feature | null>(null)
   const [setupComplete, setSetupComplete] = useState(true) // Start optimistic
@@ -22,6 +32,66 @@ function App() {
   const { data: projects, isLoading: projectsLoading } = useProjects()
   const { data: features } = useFeatures(selectedProject)
   const wsState = useProjectWebSocket(selectedProject)
+
+  // Play sounds when features move between columns
+  useFeatureSound(features)
+
+  // Persist selected project to localStorage
+  const handleSelectProject = useCallback((project: string | null) => {
+    setSelectedProject(project)
+    try {
+      if (project) {
+        localStorage.setItem(STORAGE_KEY, project)
+      } else {
+        localStorage.removeItem(STORAGE_KEY)
+      }
+    } catch {
+      // localStorage not available
+    }
+  }, [])
+
+  // Validate stored project exists (clear if project was deleted)
+  useEffect(() => {
+    if (selectedProject && projects && !projects.some(p => p.name === selectedProject)) {
+      handleSelectProject(null)
+    }
+  }, [selectedProject, projects, handleSelectProject])
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if user is typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return
+      }
+
+      // D : Toggle debug window
+      if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault()
+        setDebugOpen(prev => !prev)
+      }
+
+      // N : Add new feature (when project selected)
+      if ((e.key === 'n' || e.key === 'N') && selectedProject) {
+        e.preventDefault()
+        setShowAddFeature(true)
+      }
+
+      // Escape : Close modals
+      if (e.key === 'Escape') {
+        if (showAddFeature) {
+          setShowAddFeature(false)
+        } else if (selectedFeature) {
+          setSelectedFeature(null)
+        } else if (debugOpen) {
+          setDebugOpen(false)
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [selectedProject, showAddFeature, selectedFeature, debugOpen])
 
   // Combine WebSocket progress with feature data
   const progress = wsState.progress.total > 0 ? wsState.progress : {
@@ -54,7 +124,7 @@ function App() {
               <ProjectSelector
                 projects={projects ?? []}
                 selectedProject={selectedProject}
-                onSelectProject={setSelectedProject}
+                onSelectProject={handleSelectProject}
                 isLoading={projectsLoading}
               />
 
@@ -63,9 +133,13 @@ function App() {
                   <button
                     onClick={() => setShowAddFeature(true)}
                     className="neo-btn neo-btn-primary text-sm"
+                    title="Press N"
                   >
                     <Plus size={18} />
                     Add Feature
+                    <kbd className="ml-1.5 px-1.5 py-0.5 text-xs bg-black/20 rounded font-mono">
+                      N
+                    </kbd>
                   </button>
 
                   <AgentControl

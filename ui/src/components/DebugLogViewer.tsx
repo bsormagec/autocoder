@@ -101,6 +101,9 @@ export function DebugLogViewer({
           <span className="font-mono text-sm text-white font-bold">
             Debug
           </span>
+          <span className="px-1.5 py-0.5 text-xs font-mono bg-[#333] text-gray-500 rounded" title="Toggle debug panel">
+            D
+          </span>
           {logs.length > 0 && (
             <span className="px-2 py-0.5 text-xs font-mono bg-[#333] text-gray-300 rounded">
               {logs.length}

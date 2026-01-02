@@ -9,6 +9,16 @@ Start by reading `app_spec.txt` in your working directory. This file contains
 the complete specification for what you need to build. Read it carefully
 before proceeding.
 
+---
+
+## REQUIRED FEATURE COUNT
+
+**CRITICAL:** You must create exactly **[FEATURE_COUNT]** features using the `feature_create_bulk` tool.
+
+This number was determined during spec creation and must be followed precisely. Do not create more or fewer features than specified.
+
+---
+
 ### CRITICAL FIRST TASK: Create Features
 
 Based on `app_spec.txt`, create features using the feature_create_bulk tool. The features are stored in a SQLite database,

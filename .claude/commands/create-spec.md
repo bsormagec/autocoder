@@ -459,10 +459,19 @@ Create a new file using this XML structure:
 If the output directory has an existing `initializer_prompt.md`, read it and update the feature count.
 If not, copy from `.claude/templates/initializer_prompt.template.md` first, then update.
 
-Update the feature count references to match the derived count from Phase 4L:
+**CRITICAL: You MUST update the feature count placeholder:**
 
-- Line containing "create ... test cases" - update to the derived feature count
-- Line containing "Minimum ... features" - update to the derived feature count
+1. Find the line containing `**[FEATURE_COUNT]**` in the "REQUIRED FEATURE COUNT" section
+2. Replace `[FEATURE_COUNT]` with the exact number agreed upon in Phase 4L (e.g., `25`)
+3. The result should read like: `You must create exactly **25** features using the...`
+
+**Example edit:**
+```
+Before: **CRITICAL:** You must create exactly **[FEATURE_COUNT]** features using the `feature_create_bulk` tool.
+After:  **CRITICAL:** You must create exactly **25** features using the `feature_create_bulk` tool.
+```
+
+**Verify the update:** After editing, read the file again to confirm the feature count appears correctly. If `[FEATURE_COUNT]` still appears in the file, the update failed and you must try again.
 
 **Note:** You do NOT need to update `coding_prompt.md` - the coding agent works through features one at a time regardless of total count.
 

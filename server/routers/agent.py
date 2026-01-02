@@ -11,7 +11,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException
 
-from ..schemas import AgentStatus, AgentActionResponse
+from ..schemas import AgentStatus, AgentActionResponse, AgentStartRequest
 from ..services.process_manager import get_manager
 
 
@@ -68,15 +68,19 @@ async def get_agent_status(project_name: str):
         status=manager.status,
         pid=manager.pid,
         started_at=manager.started_at,
+        yolo_mode=manager.yolo_mode,
     )
 
 
 @router.post("/start", response_model=AgentActionResponse)
-async def start_agent(project_name: str):
+async def start_agent(
+    project_name: str,
+    request: AgentStartRequest = AgentStartRequest(),
+):
     """Start the agent for a project."""
     manager = get_project_manager(project_name)
 
-    success, message = await manager.start()
+    success, message = await manager.start(yolo_mode=request.yolo_mode)
 
     return AgentActionResponse(
         success=success,

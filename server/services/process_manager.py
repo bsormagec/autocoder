@@ -74,6 +74,7 @@ class AgentProcessManager:
         self._status: Literal["stopped", "running", "paused", "crashed"] = "stopped"
         self.started_at: datetime | None = None
         self._output_task: asyncio.Task | None = None
+        self.yolo_mode: bool = False  # YOLO mode for rapid prototyping
 
         # Support multiple callbacks (for multiple WebSocket clients)
         self._output_callbacks: Set[Callable[[str], Awaitable[None]]] = set()
@@ -214,9 +215,12 @@ class AgentProcessManager:
                     self.status = "stopped"
                 self._remove_lock()
 
-    async def start(self) -> tuple[bool, str]:
+    async def start(self, yolo_mode: bool = False) -> tuple[bool, str]:
         """
         Start the agent as a subprocess.
+
+        Args:
+            yolo_mode: If True, run in YOLO mode (no browser testing)
 
         Returns:
             Tuple of (success, message)
@@ -227,6 +231,9 @@ class AgentProcessManager:
         if not self._check_lock():
             return False, "Another agent instance is already running for this project"
 
+        # Store YOLO mode for status queries
+        self.yolo_mode = yolo_mode
+
         # Build command - pass absolute path to project directory
         cmd = [
             sys.executable,
@@ -234,6 +241,10 @@ class AgentProcessManager:
             "--project-dir",
             str(self.project_dir.resolve()),
         ]
+
+        # Add --yolo flag if YOLO mode is enabled
+        if yolo_mode:
+            cmd.append("--yolo")
 
         try:
             # Start subprocess with piped stdout/stderr
@@ -295,6 +306,7 @@ class AgentProcessManager:
             self.status = "stopped"
             self.process = None
             self.started_at = None
+            self.yolo_mode = False  # Reset YOLO mode
 
             return True, "Agent stopped"
         except Exception as e:
@@ -375,6 +387,7 @@ class AgentProcessManager:
             "status": self.status,
             "pid": self.pid,
             "started_at": self.started_at.isoformat() if self.started_at else None,
+            "yolo_mode": self.yolo_mode,
         }
 
 

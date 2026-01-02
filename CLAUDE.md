@@ -42,7 +42,34 @@ python start.py
 # Run agent directly for a project (use absolute path or registered name)
 python autonomous_agent_demo.py --project-dir C:/Projects/my-app
 python autonomous_agent_demo.py --project-dir my-app  # if registered
+
+# YOLO mode: rapid prototyping without browser testing
+python autonomous_agent_demo.py --project-dir my-app --yolo
 ```
+
+### YOLO Mode (Rapid Prototyping)
+
+YOLO mode skips all testing for faster feature iteration:
+
+```bash
+# CLI
+python autonomous_agent_demo.py --project-dir my-app --yolo
+
+# UI: Toggle the lightning bolt button before starting the agent
+```
+
+**What's different in YOLO mode:**
+- No regression testing (skips `feature_get_for_regression`)
+- No Playwright MCP server (browser automation disabled)
+- Features marked passing after lint/type-check succeeds
+- Faster iteration for prototyping
+
+**What's the same:**
+- Lint and type-check still run to verify code compiles
+- Feature MCP server for tracking progress
+- All other development tools available
+
+**When to use:** Early prototyping when you want to quickly scaffold features without verification overhead. Switch back to standard mode for production-quality development.
 
 ### React UI (in ui/ directory)
 

@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react'
-import { Send, X, CheckCircle2, AlertCircle, Wifi, WifiOff, RotateCcw, Loader2, ArrowRight } from 'lucide-react'
+import { Send, X, CheckCircle2, AlertCircle, Wifi, WifiOff, RotateCcw, Loader2, ArrowRight, Zap } from 'lucide-react'
 import { useSpecChat } from '../hooks/useSpecChat'
 import { ChatMessage } from './ChatMessage'
 import { QuestionOptions } from './QuestionOptions'
@@ -16,7 +16,7 @@ type InitializerStatus = 'idle' | 'starting' | 'error'
 
 interface SpecCreationChatProps {
   projectName: string
-  onComplete: (specPath: string) => void
+  onComplete: (specPath: string, yoloMode?: boolean) => void
   onCancel: () => void
   initializerStatus?: InitializerStatus
   initializerError?: string | null
@@ -33,6 +33,7 @@ export function SpecCreationChat({
 }: SpecCreationChatProps) {
   const [input, setInput] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [yoloEnabled, setYoloEnabled] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -257,7 +258,9 @@ export function SpecCreationChat({
               {initializerStatus === 'starting' ? (
                 <>
                   <Loader2 size={20} className="animate-spin" />
-                  <span className="font-bold">Starting agent...</span>
+                  <span className="font-bold">
+                    Starting agent{yoloEnabled ? ' (YOLO mode)' : ''}...
+                  </span>
                 </>
               ) : initializerStatus === 'error' ? (
                 <>
@@ -284,13 +287,28 @@ export function SpecCreationChat({
                 </button>
               )}
               {initializerStatus === 'idle' && (
-                <button
-                  onClick={() => onComplete('')}
-                  className="neo-btn neo-btn-primary"
-                >
-                  Continue to Project
-                  <ArrowRight size={16} />
-                </button>
+                <>
+                  {/* YOLO Mode Toggle */}
+                  <button
+                    onClick={() => setYoloEnabled(!yoloEnabled)}
+                    className={`neo-btn text-sm py-2 px-3 ${
+                      yoloEnabled ? 'neo-btn-warning' : 'bg-white'
+                    }`}
+                    title="YOLO Mode: Skip testing for rapid prototyping"
+                  >
+                    <Zap size={16} className={yoloEnabled ? 'text-yellow-900' : ''} />
+                    <span className={yoloEnabled ? 'text-yellow-900 font-bold' : ''}>
+                      YOLO
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => onComplete('', yoloEnabled)}
+                    className="neo-btn neo-btn-primary"
+                  >
+                    Continue to Project
+                    <ArrowRight size={16} />
+                  </button>
+                </>
               )}
             </div>
           </div>

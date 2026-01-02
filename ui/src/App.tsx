@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useProjects, useFeatures } from './hooks/useProjects'
+import { useProjects, useFeatures, useAgentStatus } from './hooks/useProjects'
 import { useProjectWebSocket } from './hooks/useWebSocket'
 import { useFeatureSound } from './hooks/useFeatureSound'
 import { useCelebration } from './hooks/useCelebration'
@@ -34,6 +34,7 @@ function App() {
 
   const { data: projects, isLoading: projectsLoading } = useProjects()
   const { data: features } = useFeatures(selectedProject)
+  const { data: agentStatusData } = useAgentStatus(selectedProject)
   const wsState = useProjectWebSocket(selectedProject)
 
   // Play sounds when features move between columns
@@ -151,6 +152,7 @@ function App() {
                   <AgentControl
                     projectName={selectedProject}
                     status={wsState.agentStatus}
+                    yoloMode={agentStatusData?.yolo_mode ?? false}
                   />
                 </>
               )}

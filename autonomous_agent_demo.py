@@ -16,6 +16,9 @@ Example Usage:
 
     # Limit iterations for testing
     python autonomous_agent_demo.py --project-dir my-app --max-iterations 5
+
+    # YOLO mode: rapid prototyping without browser testing
+    python autonomous_agent_demo.py --project-dir my-app --yolo
 """
 
 import argparse
@@ -57,6 +60,9 @@ Examples:
   # Limit iterations for testing
   python autonomous_agent_demo.py --project-dir my-app --max-iterations 5
 
+  # YOLO mode: rapid prototyping without browser testing
+  python autonomous_agent_demo.py --project-dir my-app --yolo
+
 Authentication:
   Uses Claude CLI credentials from ~/.claude/.credentials.json
   Run 'claude login' to authenticate (handled by start.bat/start.sh)
@@ -82,6 +88,13 @@ Authentication:
         type=str,
         default=DEFAULT_MODEL,
         help=f"Claude model to use (default: {DEFAULT_MODEL})",
+    )
+
+    parser.add_argument(
+        "--yolo",
+        action="store_true",
+        default=False,
+        help="Enable YOLO mode: rapid prototyping without browser testing",
     )
 
     return parser.parse_args()
@@ -122,6 +135,7 @@ def main() -> None:
                 project_dir=project_dir,
                 model=args.model,
                 max_iterations=args.max_iterations,
+                yolo_mode=args.yolo,
             )
         )
     except KeyboardInterrupt:

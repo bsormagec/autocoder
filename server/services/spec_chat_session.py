@@ -7,6 +7,7 @@ Uses the create-spec.md skill to guide users through app spec creation.
 """
 
 import asyncio
+import json
 import logging
 import shutil
 import threading
@@ -87,6 +88,33 @@ class SpecChatSession:
         # Ensure project directory exists (like CLI does in start.py)
         self.project_dir.mkdir(parents=True, exist_ok=True)
 
+        # Delete app_spec.txt so Claude can create it fresh
+        # The SDK requires reading existing files before writing, but app_spec.txt is created new
+        # Note: We keep initializer_prompt.md so Claude can read and update the template
+        prompts_dir = self.project_dir / "prompts"
+        app_spec_path = prompts_dir / "app_spec.txt"
+        if app_spec_path.exists():
+            app_spec_path.unlink()
+            logger.info("Deleted scaffolded app_spec.txt for fresh spec creation")
+
+        # Create security settings file (like client.py does)
+        # This grants permissions for file operations in the project directory
+        security_settings = {
+            "sandbox": {"enabled": False},  # Disable sandbox for spec creation
+            "permissions": {
+                "defaultMode": "acceptEdits",
+                "allow": [
+                    "Read(./**)",
+                    "Write(./**)",
+                    "Edit(./**)",
+                    "Glob(./**)",
+                ],
+            },
+        }
+        settings_file = self.project_dir / ".claude_settings.json"
+        with open(settings_file, "w") as f:
+            json.dump(security_settings, f, indent=2)
+
         # Replace $ARGUMENTS with absolute project path (like CLI does in start.py:184)
         # Using absolute path avoids confusion when project folder name differs from app name
         project_path = str(self.project_dir.resolve())
@@ -111,6 +139,7 @@ class SpecChatSession:
                     permission_mode="acceptEdits",  # Auto-approve file writes for spec creation
                     max_turns=100,
                     cwd=str(self.project_dir.resolve()),
+                    settings=str(settings_file.resolve()),
                 )
             )
             # Enter the async context and track it

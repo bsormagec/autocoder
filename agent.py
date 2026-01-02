@@ -24,6 +24,7 @@ from progress import print_session_header, print_progress_summary, has_features
 from prompts import (
     get_initializer_prompt,
     get_coding_prompt,
+    get_coding_prompt_yolo,
     copy_spec_to_project,
     has_project_prompts,
 )
@@ -111,6 +112,7 @@ async def run_autonomous_agent(
     project_dir: Path,
     model: str,
     max_iterations: Optional[int] = None,
+    yolo_mode: bool = False,
 ) -> None:
     """
     Run the autonomous agent loop.
@@ -119,12 +121,17 @@ async def run_autonomous_agent(
         project_dir: Directory for the project
         model: Claude model to use
         max_iterations: Maximum number of iterations (None for unlimited)
+        yolo_mode: If True, skip browser testing and use YOLO prompt
     """
     print("\n" + "=" * 70)
     print("  AUTONOMOUS CODING AGENT DEMO")
     print("=" * 70)
     print(f"\nProject directory: {project_dir}")
     print(f"Model: {model}")
+    if yolo_mode:
+        print("Mode: YOLO (testing disabled)")
+    else:
+        print("Mode: Standard (full testing)")
     if max_iterations:
         print(f"Max iterations: {max_iterations}")
     else:
@@ -170,7 +177,7 @@ async def run_autonomous_agent(
         print_session_header(iteration, is_first_run)
 
         # Create client (fresh context)
-        client = create_client(project_dir, model)
+        client = create_client(project_dir, model, yolo_mode=yolo_mode)
 
         # Choose prompt based on session type
         # Pass project_dir to enable project-specific prompts
@@ -178,7 +185,11 @@ async def run_autonomous_agent(
             prompt = get_initializer_prompt(project_dir)
             is_first_run = False  # Only use initializer once
         else:
-            prompt = get_coding_prompt(project_dir)
+            # Use YOLO prompt if in YOLO mode
+            if yolo_mode:
+                prompt = get_coding_prompt_yolo(project_dir)
+            else:
+                prompt = get_coding_prompt(project_dir)
 
         # Run session with async context manager
         async with client:

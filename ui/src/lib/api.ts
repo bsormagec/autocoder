@@ -117,9 +117,13 @@ export async function getAgentStatus(projectName: string): Promise<AgentStatusRe
   return fetchJSON(`/projects/${encodeURIComponent(projectName)}/agent/status`)
 }
 
-export async function startAgent(projectName: string): Promise<AgentActionResponse> {
+export async function startAgent(
+  projectName: string,
+  yoloMode: boolean = false
+): Promise<AgentActionResponse> {
   return fetchJSON(`/projects/${encodeURIComponent(projectName)}/agent/start`, {
     method: 'POST',
+    body: JSON.stringify({ yolo_mode: yoloMode }),
   })
 }
 

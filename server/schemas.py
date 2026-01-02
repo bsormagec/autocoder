@@ -99,11 +99,17 @@ class FeatureListResponse(BaseModel):
 # Agent Schemas
 # ============================================================================
 
+class AgentStartRequest(BaseModel):
+    """Request schema for starting the agent."""
+    yolo_mode: bool = False
+
+
 class AgentStatus(BaseModel):
     """Current agent status."""
     status: Literal["stopped", "running", "paused", "crashed"]
     pid: int | None = None
     started_at: datetime | None = None
+    yolo_mode: bool = False
 
 
 class AgentActionResponse(BaseModel):

@@ -39,6 +39,7 @@ export function NewProjectModal({
   const [error, setError] = useState<string | null>(null)
   const [initializerStatus, setInitializerStatus] = useState<InitializerStatus>('idle')
   const [initializerError, setInitializerError] = useState<string | null>(null)
+  const [yoloModeSelected, setYoloModeSelected] = useState(false)
 
   // Suppress unused variable warning - specMethod may be used in future
   void _specMethod
@@ -116,11 +117,13 @@ export function NewProjectModal({
     }
   }
 
-  const handleSpecComplete = async () => {
+  const handleSpecComplete = async (_specPath: string, yoloMode: boolean = false) => {
+    // Save yoloMode for retry
+    setYoloModeSelected(yoloMode)
     // Auto-start the initializer agent
     setInitializerStatus('starting')
     try {
-      await startAgent(projectName.trim())
+      await startAgent(projectName.trim(), yoloMode)
       // Success - navigate to project
       setStep('complete')
       setTimeout(() => {
@@ -136,7 +139,7 @@ export function NewProjectModal({
   const handleRetryInitializer = () => {
     setInitializerError(null)
     setInitializerStatus('idle')
-    handleSpecComplete()
+    handleSpecComplete('', yoloModeSelected)
   }
 
   const handleChatCancel = () => {
@@ -153,6 +156,7 @@ export function NewProjectModal({
     setError(null)
     setInitializerStatus('idle')
     setInitializerError(null)
+    setYoloModeSelected(false)
     onClose()
   }
 

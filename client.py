@@ -72,13 +72,14 @@ BUILTIN_TOOLS = [
 ]
 
 
-def create_client(project_dir: Path, model: str):
+def create_client(project_dir: Path, model: str, yolo_mode: bool = False):
     """
     Create a Claude Agent SDK client with multi-layered security.
 
     Args:
         project_dir: Directory for the project
         model: Claude model to use
+        yolo_mode: If True, skip Playwright MCP server for rapid prototyping
 
     Returns:
         Configured ClaudeSDKClient (from claude_agent_sdk)
@@ -92,6 +93,30 @@ def create_client(project_dir: Path, model: str):
     Note: Authentication is handled by start.bat/start.sh before this runs.
     The Claude SDK auto-detects credentials from ~/.claude/.credentials.json
     """
+    # Build allowed tools list based on mode
+    # In YOLO mode, exclude Playwright tools for faster prototyping
+    allowed_tools = [*BUILTIN_TOOLS, *FEATURE_MCP_TOOLS]
+    if not yolo_mode:
+        allowed_tools.extend(PLAYWRIGHT_TOOLS)
+
+    # Build permissions list
+    permissions_list = [
+        # Allow all file operations within the project directory
+        "Read(./**)",
+        "Write(./**)",
+        "Edit(./**)",
+        "Glob(./**)",
+        "Grep(./**)",
+        # Bash permission granted here, but actual commands are validated
+        # by the bash_security_hook (see security.py for allowed commands)
+        "Bash(*)",
+        # Allow Feature MCP tools for feature management
+        *FEATURE_MCP_TOOLS,
+    ]
+    if not yolo_mode:
+        # Allow Playwright MCP tools for browser automation (standard mode only)
+        permissions_list.extend(PLAYWRIGHT_TOOLS)
+
     # Create comprehensive security settings
     # Note: Using relative paths ("./**") restricts access to project directory
     # since cwd is set to project_dir
@@ -99,21 +124,7 @@ def create_client(project_dir: Path, model: str):
         "sandbox": {"enabled": True, "autoAllowBashIfSandboxed": True},
         "permissions": {
             "defaultMode": "acceptEdits",  # Auto-approve edits within allowed directories
-            "allow": [
-                # Allow all file operations within the project directory
-                "Read(./**)",
-                "Write(./**)",
-                "Edit(./**)",
-                "Glob(./**)",
-                "Grep(./**)",
-                # Bash permission granted here, but actual commands are validated
-                # by the bash_security_hook (see security.py for allowed commands)
-                "Bash(*)",
-                # Allow Playwright MCP tools for browser automation
-                *PLAYWRIGHT_TOOLS,
-                # Allow Feature MCP tools for feature management
-                *FEATURE_MCP_TOOLS,
-            ],
+            "allow": permissions_list,
         },
     }
 
@@ -129,7 +140,10 @@ def create_client(project_dir: Path, model: str):
     print("   - Sandbox enabled (OS-level bash isolation)")
     print(f"   - Filesystem restricted to: {project_dir.resolve()}")
     print("   - Bash commands restricted to allowlist (see security.py)")
-    print("   - MCP servers: playwright (browser), features (database)")
+    if yolo_mode:
+        print("   - MCP servers: features (database) - YOLO MODE (no Playwright)")
+    else:
+        print("   - MCP servers: playwright (browser), features (database)")
     print("   - Project settings enabled (skills, commands, CLAUDE.md)")
     print()
 
@@ -140,6 +154,27 @@ def create_client(project_dir: Path, model: str):
     else:
         print("   - Warning: System Claude CLI not found, using bundled CLI")
 
+    # Build MCP servers config - features is always included, playwright only in standard mode
+    mcp_servers = {
+        "features": {
+            "command": sys.executable,  # Use the same Python that's running this script
+            "args": ["-m", "mcp_server.feature_mcp"],
+            "env": {
+                # Inherit parent environment (PATH, ANTHROPIC_API_KEY, etc.)
+                **os.environ,
+                # Add custom variables
+                "PROJECT_DIR": str(project_dir.resolve()),
+                "PYTHONPATH": str(Path(__file__).parent.resolve()),
+            },
+        },
+    }
+    if not yolo_mode:
+        # Include Playwright MCP server for browser automation (standard mode only)
+        mcp_servers["playwright"] = {
+            "command": "npx",
+            "args": ["@playwright/mcp@latest", "--viewport-size", "1280x720"],
+        }
+
     return ClaudeSDKClient(
         options=ClaudeAgentOptions(
             model=model,
@@ -147,25 +182,8 @@ def create_client(project_dir: Path, model: str):
             system_prompt="You are an expert full-stack developer building a production-quality web application.",
             setting_sources=["project"],  # Enable skills, commands, and CLAUDE.md from project dir
             max_buffer_size=10 * 1024 * 1024,  # 10MB for large Playwright screenshots
-            allowed_tools=[
-                *BUILTIN_TOOLS,
-                *PLAYWRIGHT_TOOLS,
-                *FEATURE_MCP_TOOLS,
-            ],
-            mcp_servers={
-                "playwright": {"command": "npx", "args": ["@playwright/mcp@latest", "--viewport-size", "1280x720"]},
-                "features": {
-                    "command": sys.executable,  # Use the same Python that's running this script
-                    "args": ["-m", "mcp_server.feature_mcp"],
-                    "env": {
-                        # Inherit parent environment (PATH, ANTHROPIC_API_KEY, etc.)
-                        **os.environ,
-                        # Add custom variables
-                        "PROJECT_DIR": str(project_dir.resolve()),
-                        "PYTHONPATH": str(Path(__file__).parent.resolve()),
-                    },
-                },
-            },
+            allowed_tools=allowed_tools,
+            mcp_servers=mcp_servers,
             hooks={
                 "PreToolUse": [
                     HookMatcher(matcher="Bash", hooks=[bash_security_hook]),

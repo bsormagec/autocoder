@@ -23,6 +23,7 @@ Example Usage:
 
 import argparse
 import asyncio
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -34,9 +35,27 @@ load_dotenv()
 from agent import run_autonomous_agent
 from registry import get_project_path
 
+
+def get_default_model() -> str:
+    """
+    Get the default model based on environment configuration.
+    
+    When CLAUDE_CODE_USE_BEDROCK=1, uses Bedrock inference profile from ANTHROPIC_MODEL.
+    Otherwise, uses standard Anthropic API model name.
+    """
+    if os.getenv("CLAUDE_CODE_USE_BEDROCK") == "1":
+        # Bedrock mode: use ANTHROPIC_MODEL env var or default inference profile
+        return os.getenv(
+            "ANTHROPIC_MODEL",
+            "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        )
+    else:
+        # Standard Anthropic API
+        return "claude-opus-4-5-20251101"
+
+
 # Configuration
-# DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
-DEFAULT_MODEL = "claude-opus-4-5-20251101"
+DEFAULT_MODEL = get_default_model()
 
 
 def parse_args() -> argparse.Namespace:

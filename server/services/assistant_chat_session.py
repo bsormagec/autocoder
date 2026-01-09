@@ -26,6 +26,24 @@ from .assistant_database import (
 
 logger = logging.getLogger(__name__)
 
+
+def get_default_model() -> str:
+    """
+    Get the default model based on environment configuration.
+    
+    When CLAUDE_CODE_USE_BEDROCK=1, uses Bedrock inference profile from ANTHROPIC_MODEL.
+    Otherwise, uses standard Anthropic API model name.
+    """
+    if os.getenv("CLAUDE_CODE_USE_BEDROCK") == "1":
+        # Bedrock mode: use ANTHROPIC_MODEL env var or default inference profile
+        return os.getenv(
+            "ANTHROPIC_MODEL",
+            "us.anthropic.claude-opus-4-5-20251101-v1:0"
+        )
+    else:
+        # Standard Anthropic API
+        return "claude-opus-4-5-20251101"
+
 # Root directory of the project
 ROOT_DIR = Path(__file__).parent.parent.parent
 
@@ -188,7 +206,7 @@ class AssistantChatSession:
         try:
             self.client = ClaudeSDKClient(
                 options=ClaudeAgentOptions(
-                    model="claude-opus-4-5-20251101",
+                    model=get_default_model(),
                     cli_path=system_cli,
                     system_prompt=system_prompt,
                     allowed_tools=[*READONLY_BUILTIN_TOOLS, *READONLY_FEATURE_MCP_TOOLS],

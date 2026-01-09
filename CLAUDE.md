@@ -192,3 +192,53 @@ The UI uses a **neobrutalism** design with Tailwind CSS v4:
 - CSS variables defined in `ui/src/styles/globals.css` via `@theme` directive
 - Custom animations: `animate-slide-in`, `animate-pulse-neo`, `animate-shimmer`
 - Color tokens: `--color-neo-pending` (yellow), `--color-neo-progress` (cyan), `--color-neo-done` (green)
+
+### AWS Bedrock Integration
+
+This project supports AWS Bedrock as an alternative to the Anthropic API. The agent automatically detects Bedrock mode from environment variables.
+
+#### Setup
+
+1. **Set required environment variables** (add to your shell profile or `.env` file):
+   ```bash
+   export CLAUDE_CODE_USE_BEDROCK=1
+   export AWS_REGION=us-east-1  # Required - SDK does not read from .aws/config
+   ```
+
+2. **Configure authentication** (choose one option):
+   
+   **Option A: Bedrock API Key** (easiest - no AWS CLI needed)
+   ```bash
+   export AWS_BEARER_TOKEN_BEDROCK=your-bedrock-api-key
+   ```
+   
+   **Option B: AWS Access Keys**
+   ```bash
+   export AWS_ACCESS_KEY_ID=your-access-key
+   export AWS_SECRET_ACCESS_KEY=your-secret-key
+   ```
+   
+   **Option C: AWS SSO Profile**
+   ```bash
+   export AWS_PROFILE=your-sso-profile
+   ```
+
+3. **Configure model** (optional - defaults to Opus):
+   ```bash
+   export ANTHROPIC_MODEL=us.anthropic.claude-opus-4-5-20251101-v1:0
+   ```
+
+#### Troubleshooting
+
+- **Check model availability**: `aws bedrock list-inference-profiles --region us-east-1`
+- **Verify environment**: `env | grep -E "(AWS_|ANTHROPIC_|CLAUDE_)"`
+- **Region issues**: Some features like prompt caching may not be available in all regions
+
+#### Model Names
+
+| Purpose | Anthropic API | Bedrock Inference Profile |
+|---------|---------------|---------------------------|
+| Opus | `claude-opus-4-5-20251101` | `us.anthropic.claude-opus-4-5-20251101-v1:0` |
+| Sonnet | `claude-sonnet-4-5-20250929` | `us.anthropic.claude-sonnet-4-5-20250929-v1:0` |
+| Haiku | `claude-haiku-4-5-20251001` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` |
+

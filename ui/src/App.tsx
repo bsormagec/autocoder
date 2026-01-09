@@ -3,6 +3,8 @@ import { useProjects, useFeatures, useAgentStatus } from './hooks/useProjects'
 import { useProjectWebSocket } from './hooks/useWebSocket'
 import { useFeatureSound } from './hooks/useFeatureSound'
 import { useCelebration } from './hooks/useCelebration'
+import { FileExplorer } from './components/FileExplorer'
+import { CodeViewer } from './components/CodeViewer'
 
 const STORAGE_KEY = 'autocoder-selected-project'
 import { ProjectSelector } from './components/ProjectSelector'
@@ -16,7 +18,7 @@ import { DebugLogViewer } from './components/DebugLogViewer'
 import { AgentThought } from './components/AgentThought'
 import { AssistantFAB } from './components/AssistantFAB'
 import { AssistantPanel } from './components/AssistantPanel'
-import { Plus, Loader2 } from 'lucide-react'
+import { Plus, Loader2, Code, LayoutTemplate } from 'lucide-react'
 import type { Feature } from './lib/types'
 
 function App() {
@@ -34,6 +36,10 @@ function App() {
   const [debugOpen, setDebugOpen] = useState(false)
   const [debugPanelHeight, setDebugPanelHeight] = useState(288) // Default height
   const [assistantOpen, setAssistantOpen] = useState(false)
+
+  // New state for File Explorer
+  const [codeMode, setCodeMode] = useState(false)
+  const [viewingFile, setViewingFile] = useState<{ path: string, name: string } | null>(null)
 
   const { data: projects, isLoading: projectsLoading } = useProjects()
   const { data: features } = useFeatures(selectedProject)
@@ -149,6 +155,15 @@ function App() {
               {selectedProject && (
                 <>
                   <button
+                    onClick={() => setCodeMode(!codeMode)}
+                    className={`neo-btn ${codeMode ? 'neo-btn-primary' : 'bg-white text-black hover:bg-gray-100'} text-sm flex items-center gap-2`}
+                    title={codeMode ? "Switch to Kanban" : "Switch to Code"}
+                  >
+                    {codeMode ? <LayoutTemplate size={18} /> : <Code size={18} />}
+                    {codeMode ? "Kanban" : "Code"}
+                  </button>
+
+                  <button
                     onClick={() => setShowAddFeature(true)}
                     className="neo-btn neo-btn-primary text-sm"
                     title="Press N"
@@ -175,7 +190,11 @@ function App() {
       {/* Main Content */}
       <main
         className="max-w-7xl mx-auto px-4 py-8"
-        style={{ paddingBottom: debugOpen ? debugPanelHeight + 32 : undefined }}
+        style={{
+          paddingBottom: debugOpen ? debugPanelHeight + 32 : undefined,
+          height: codeMode ? 'calc(100vh - 80px)' : 'auto',
+          display: codeMode ? 'flex' : 'block'
+        }}
       >
         {!selectedProject ? (
           <div className="neo-empty-state mt-12">
@@ -185,6 +204,22 @@ function App() {
             <p className="text-[var(--color-neo-text-secondary)] mb-4">
               Select a project from the dropdown above or create a new one to get started.
             </p>
+          </div>
+        ) : codeMode ? (
+          <div className="flex-1 flex h-full border-3 border-[var(--color-neo-border)] rounded-lg overflow-hidden bg-white shadow-[4px_4px_0px_var(--color-neo-shadow)]">
+            <div className="w-80 flex-shrink-0 h-full overflow-hidden">
+              <FileExplorer
+                initialPath={projects?.find(p => p.name === selectedProject)?.path || ''}
+                onFileSelect={(path, name) => setViewingFile({ path, name })}
+                selectedFile={viewingFile?.path || null}
+              />
+            </div>
+            <div className="flex-1 h-full border-l-3 border-[var(--color-neo-border)] overflow-hidden">
+              <CodeViewer
+                filePath={viewingFile?.path || null}
+                fileName={viewingFile?.name || null}
+              />
+            </div>
           </div>
         ) : (
           <div className="space-y-8">
@@ -204,20 +239,20 @@ function App() {
 
             {/* Initializing Features State - show when agent is running but no features yet */}
             {features &&
-             features.pending.length === 0 &&
-             features.in_progress.length === 0 &&
-             features.done.length === 0 &&
-             wsState.agentStatus === 'running' && (
-              <div className="neo-card p-8 text-center">
-                <Loader2 size={32} className="animate-spin mx-auto mb-4 text-[var(--color-neo-progress)]" />
-                <h3 className="font-display font-bold text-xl mb-2">
-                  Initializing Features...
-                </h3>
-                <p className="text-[var(--color-neo-text-secondary)]">
-                  The agent is reading your spec and creating features. This may take a moment.
-                </p>
-              </div>
-            )}
+              features.pending.length === 0 &&
+              features.in_progress.length === 0 &&
+              features.done.length === 0 &&
+              wsState.agentStatus === 'running' && (
+                <div className="neo-card p-8 text-center">
+                  <Loader2 size={32} className="animate-spin mx-auto mb-4 text-[var(--color-neo-progress)]" />
+                  <h3 className="font-display font-bold text-xl mb-2">
+                    Initializing Features...
+                  </h3>
+                  <p className="text-[var(--color-neo-text-secondary)]">
+                    The agent is reading your spec and creating features. This may take a moment.
+                  </p>
+                </div>
+              )}
 
             {/* Kanban Board */}
             <KanbanBoard

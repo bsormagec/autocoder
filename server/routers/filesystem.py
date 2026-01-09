@@ -184,16 +184,39 @@ def is_unc_path(path_str: str) -> bool:
 # Endpoints
 # =============================================================================
 
+# Common clutter directories to ignore in list
+IGNORED_DIRS = {
+    "node_modules",
+    "__pycache__",
+    ".git",
+    ".DS_Store",
+    "venv",
+    ".idea",
+    ".vscode",
+    "dist",
+    "build",
+    "coverage",
+}
+
+# File extensions to ignore/hide completely
+IGNORED_EXTENSIONS = {
+    ".db",
+    ".sqlite",
+    ".sqlite3",
+    ".pyc",
+}
+
 @router.get("/list", response_model=DirectoryListResponse)
 async def list_directory(
     path: str | None = Query(None, description="Directory path to list (defaults to home)"),
     show_hidden: bool = Query(False, description="Include hidden files"),
+    include_files: bool = Query(False, description="Include files in the listing"),
 ):
     """
     List contents of a directory.
-
-    Returns directories only (for folder selection).
-    On Windows, includes available drives.
+    
+    By default returns directories only (for folder selection).
+    Set include_files=True for full file explorer.
     """
     # Default to home directory
     if path is None or path == "":
@@ -236,7 +259,18 @@ async def list_directory(
     # List directory contents
     entries = []
     try:
-        for item in sorted(target.iterdir(), key=lambda x: x.name.lower()):
+        # Sort directories first, then files
+        items = sorted(target.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower()))
+        
+        for item in items:
+            # Skip if bumped into ignored dirs
+            if item.name in IGNORED_DIRS:
+                continue
+            
+            # Skip ignored extensions
+            if item.suffix.lower() in IGNORED_EXTENSIONS:
+                continue
+
             # Skip if blocked pattern
             if matches_blocked_pattern(item.name):
                 continue
@@ -250,29 +284,55 @@ async def list_directory(
             if is_path_blocked(item):
                 continue
 
-            # Only include directories for folder browsing
-            if item.is_dir():
-                try:
-                    # Check if directory has any subdirectories
-                    has_children = False
+            is_dir = item.is_dir()
+            
+            # Filter logic: include if it is a directory OR if include_files is True
+            if is_dir or include_files:
+                entry_size = None
+                has_children = False
+                
+                if is_dir:
                     try:
-                        for child in item.iterdir():
-                            if child.is_dir() and not is_path_blocked(child):
+                        # Check if directory has any subdirectories (optimization)
+                        # or any children if including files
+                        has_valid_children = False
+                        try:
+                            # We just need to know if there is at least one valid item
+                            # We don't need to count them all
+                            it = item.iterdir()
+                            # Check first few items
+                            for child in it:
+                                if child.name in IGNORED_DIRS or matches_blocked_pattern(child.name):
+                                    continue
+                                if child.suffix.lower() in IGNORED_EXTENSIONS:
+                                    continue
+                                if is_hidden_file(child) and not show_hidden:
+                                    continue
+                                
+                                # If we strictly want folders (include_files=False), child must be dir
+                                if not include_files and not child.is_dir():
+                                    continue
+                                    
                                 has_children = True
                                 break
-                    except (PermissionError, OSError):
-                        pass  # Can't read = assume no children
+                        except (PermissionError, OSError):
+                            pass 
+                    except Exception:
+                        pass
+                else:
+                    # It is a file
+                    try:
+                        entry_size = item.stat().st_size
+                    except Exception:
+                        pass
 
-                    entries.append(DirectoryEntry(
-                        name=item.name,
-                        path=item.as_posix(),
-                        is_directory=True,
-                        is_hidden=hidden,
-                        size=None,
-                        has_children=has_children,
-                    ))
-                except Exception:
-                    pass  # Skip items we can't process
+                entries.append(DirectoryEntry(
+                    name=item.name,
+                    path=item.as_posix(),
+                    is_directory=is_dir,
+                    has_children=has_children,
+                    size=entry_size
+                ))
 
     except PermissionError:
         raise HTTPException(status_code=403, detail="Permission denied")
@@ -510,3 +570,51 @@ async def get_home_directory():
         "path": home.as_posix(),
         "display_path": str(home),
     }
+
+
+@router.get("/content")
+async def get_file_content(path: str = Query(..., description="Path to file")):
+    """
+    Read content of a file.
+    """
+    # Security: Block UNC paths
+    if is_unc_path(path):
+        raise HTTPException(
+            status_code=403,
+            detail="Network paths (UNC) are not allowed"
+        )
+    
+    try:
+        target = Path(path).resolve()
+    except (OSError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=f"Invalid path: {e}")
+
+    # Security: Check if path is blocked
+    if is_path_blocked(target):
+        logger.warning("Blocked access to restricted path: %s", target)
+        raise HTTPException(
+            status_code=403,
+            detail="Access to this file is not allowed"
+        )
+
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    if not target.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file")
+        
+    if not os.access(target, os.R_OK):
+        raise HTTPException(status_code=403, detail="No read permission")
+
+    try:
+        # Read as text
+        # Limit size to prevent memory issues (e.g., 1MB)
+        if target.stat().st_size > 1024 * 1024:
+             raise HTTPException(status_code=400, detail="File too large to view (max 1MB)")
+
+        content = target.read_text(encoding="utf-8")
+        return {"content": content}
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Binary files cannot be viewed")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading file: {e}")

@@ -179,9 +179,12 @@ export async function healthCheck(): Promise<{ status: string }> {
 // Filesystem API
 // ============================================================================
 
-export async function listDirectory(path?: string): Promise<DirectoryListResponse> {
-  const params = path ? `?path=${encodeURIComponent(path)}` : ''
-  return fetchJSON(`/filesystem/list${params}`)
+export async function listDirectory(path?: string, includeFiles: boolean = false): Promise<DirectoryListResponse> {
+  const params = new URLSearchParams()
+  if (path) params.append('path', path)
+  if (includeFiles) params.append('include_files', 'true')
+
+  return fetchJSON(`/filesystem/list?${params.toString()}`)
 }
 
 export async function createDirectory(fullPath: string): Promise<{ success: boolean; path: string }> {
@@ -229,6 +232,10 @@ export async function validatePath(path: string): Promise<PathValidationResponse
     method: 'POST',
     body: JSON.stringify({ path }),
   })
+}
+
+export async function getFileContent(path: string): Promise<{ content: string }> {
+  return fetchJSON(`/filesystem/content?path=${encodeURIComponent(path)}`)
 }
 
 // ============================================================================

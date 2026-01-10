@@ -275,35 +275,4 @@ export async function deleteAssistantConversation(
   )
 }
 
-// ============================================================================
-// AI Feature Chat API
-// ============================================================================
 
-export async function startFeatureChatSession(projectName: string): Promise<EventSource> {
-  return new EventSource(`${API_BASE}/projects/${encodeURIComponent(projectName)}/ai-features/session`)
-}
-
-export async function sendFeatureChatMessage(projectName: string, message: string): Promise<Response> {
-  // Use fetch to post the message, then handle the stream if needed, 
-  // but standard EventSource is GET-only. 
-  // For POST streaming, we use fetch and consume the body.
-  // Actually, for simplicity in React, we might just use fetch and read the stream manually,
-  // or use the specialized hook pattern.
-  // Let's stick to the pattern used in AssistantChat if possible, or simple fetch for now.
-
-  // Correction: The backend expects a POST for sending messages and returns a stream.
-  const response = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectName)}/ai-features/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message }),
-  })
-
-  if (!response.ok) throw new Error('Failed to send message')
-  return response // Caller handles stream
-}
-
-export async function deleteFeatureChatSession(projectName: string): Promise<void> {
-  await fetchJSON(`/projects/${encodeURIComponent(projectName)}/ai-features/session`, {
-    method: 'DELETE',
-  })
-}

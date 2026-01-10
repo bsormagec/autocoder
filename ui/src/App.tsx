@@ -18,7 +18,8 @@ import { DebugLogViewer } from './components/DebugLogViewer'
 import { AgentThought } from './components/AgentThought'
 import { AssistantFAB } from './components/AssistantFAB'
 import { AssistantPanel } from './components/AssistantPanel'
-import { Plus, Loader2, Code, LayoutTemplate } from 'lucide-react'
+import { AiFeatureChatModal } from './components/AiFeatureChatModal'
+import { Plus, Loader2, Code, LayoutTemplate, ChevronDown, Sparkles } from 'lucide-react'
 import type { Feature } from './lib/types'
 
 function App() {
@@ -31,6 +32,8 @@ function App() {
     }
   })
   const [showAddFeature, setShowAddFeature] = useState(false)
+  const [showAiFeatureChat, setShowAiFeatureChat] = useState(false)
+  const [showAddMenu, setShowAddMenu] = useState(false)
   const [selectedFeature, setSelectedFeature] = useState<Feature | null>(null)
   const [setupComplete, setSetupComplete] = useState(true) // Start optimistic
   const [debugOpen, setDebugOpen] = useState(false)
@@ -163,17 +166,49 @@ function App() {
                     {codeMode ? "Kanban" : "Code"}
                   </button>
 
-                  <button
-                    onClick={() => setShowAddFeature(true)}
-                    className="neo-btn neo-btn-primary text-sm"
-                    title="Press N"
-                  >
-                    <Plus size={18} />
-                    Add Feature
-                    <kbd className="ml-1.5 px-1.5 py-0.5 text-xs bg-black/20 rounded font-mono">
-                      N
-                    </kbd>
-                  </button>
+
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowAddMenu(!showAddMenu)}
+                      className="neo-btn neo-btn-primary text-sm flex items-center gap-1 pr-2"
+                      title="Add New Feature"
+                    >
+                      <Plus size={18} />
+                      Add Feature
+                      <ChevronDown size={14} className={`transition-transform ${showAddMenu ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {showAddMenu && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-10"
+                          onClick={() => setShowAddMenu(false)}
+                        />
+                        <div className="absolute right-0 top-full mt-2 w-48 bg-white text-black border-2 border-black shadow-[4px_4px_0px_rgba(0,0,0,1)] z-20 flex flex-col">
+                          <button
+                            onClick={() => {
+                              setShowAddFeature(true)
+                              setShowAddMenu(false)
+                            }}
+                            className="text-left px-4 py-3 hover:bg-[var(--color-neo-bg)] flex items-center gap-2 border-b border-black/10"
+                          >
+                            <Plus size={16} />
+                            <span>Manual Entry</span>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowAiFeatureChat(true)
+                              setShowAddMenu(false)
+                            }}
+                            className="text-left px-4 py-3 hover:bg-[var(--color-neo-bg)] flex items-center gap-2"
+                          >
+                            <Sparkles size={16} className="text-[var(--color-neo-accent)]" />
+                            <span>AI Creator</span>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
 
                   <AgentControl
                     projectName={selectedProject}
@@ -261,50 +296,74 @@ function App() {
             />
           </div>
         )}
-      </main>
+      </main >
 
       {/* Add Feature Modal */}
-      {showAddFeature && selectedProject && (
-        <AddFeatureForm
-          projectName={selectedProject}
-          onClose={() => setShowAddFeature(false)}
-        />
-      )}
+      {
+        showAddFeature && selectedProject && (
+          <AddFeatureForm
+            projectName={selectedProject}
+            onClose={() => setShowAddFeature(false)}
+          />
+        )
+      }
+
+      {/* AI Feature Chat Modal */}
+      {
+        showAiFeatureChat && selectedProject && (
+          <AiFeatureChatModal
+            projectName={selectedProject}
+            onClose={() => setShowAiFeatureChat(false)}
+            onFeatureCreated={() => {
+              // Refresh features? WebSocket should handle it, 
+              // but we might want to ensure the list updates.
+              // Using query invalidation would be ideal if we had access to queryClient here,
+              // but the ws updates should suffice.
+            }}
+          />
+        )
+      }
 
       {/* Feature Detail Modal */}
-      {selectedFeature && selectedProject && (
-        <FeatureModal
-          feature={selectedFeature}
-          projectName={selectedProject}
-          onClose={() => setSelectedFeature(null)}
-        />
-      )}
+      {
+        selectedFeature && selectedProject && (
+          <FeatureModal
+            feature={selectedFeature}
+            projectName={selectedProject}
+            onClose={() => setSelectedFeature(null)}
+          />
+        )
+      }
 
       {/* Debug Log Viewer - fixed to bottom */}
-      {selectedProject && (
-        <DebugLogViewer
-          logs={wsState.logs}
-          isOpen={debugOpen}
-          onToggle={() => setDebugOpen(!debugOpen)}
-          onClear={wsState.clearLogs}
-          onHeightChange={setDebugPanelHeight}
-        />
-      )}
+      {
+        selectedProject && (
+          <DebugLogViewer
+            logs={wsState.logs}
+            isOpen={debugOpen}
+            onToggle={() => setDebugOpen(!debugOpen)}
+            onClear={wsState.clearLogs}
+            onHeightChange={setDebugPanelHeight}
+          />
+        )
+      }
 
       {/* Assistant FAB and Panel */}
-      {selectedProject && (
-        <>
-          <AssistantFAB
-            onClick={() => setAssistantOpen(!assistantOpen)}
-            isOpen={assistantOpen}
-          />
-          <AssistantPanel
-            projectName={selectedProject}
-            isOpen={assistantOpen}
-            onClose={() => setAssistantOpen(false)}
-          />
-        </>
-      )}
+      {
+        selectedProject && (
+          <>
+            <AssistantFAB
+              onClick={() => setAssistantOpen(!assistantOpen)}
+              isOpen={assistantOpen}
+            />
+            <AssistantPanel
+              projectName={selectedProject}
+              isOpen={assistantOpen}
+              onClose={() => setAssistantOpen(false)}
+            />
+          </>
+        )
+      }
     </div>
   )
 }

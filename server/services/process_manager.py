@@ -18,6 +18,11 @@ from typing import Awaitable, Callable, Literal, Set
 
 import psutil
 
+# Add parent directory to path for shared module imports
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from auth import AUTH_ERROR_HELP_SERVER as AUTH_ERROR_HELP  # noqa: E402
+from auth import is_auth_error
+
 logger = logging.getLogger(__name__)
 
 # Patterns for sensitive data that should be redacted from output
@@ -74,6 +79,9 @@ class AgentProcessManager:
         self.started_at: datetime | None = None
         self._output_task: asyncio.Task | None = None
         self.yolo_mode: bool = False  # YOLO mode for rapid prototyping
+        self.model: str | None = None  # Model being used
+        self.parallel_mode: bool = False  # Parallel execution mode
+        self.max_concurrency: int | None = None  # Max concurrent agents
 
         # Support multiple callbacks (for multiple WebSocket clients)
         self._output_callbacks: Set[Callable[[str], Awaitable[None]]] = set()
@@ -140,16 +148,36 @@ class AgentProcessManager:
         return self.process.pid if self.process else None
 
     def _check_lock(self) -> bool:
-        """Check if another agent is already running for this project."""
+        """Check if another agent is already running for this project.
+
+        Uses PID + process creation time to handle PID reuse on Windows.
+        """
         if not self.lock_file.exists():
             return True
 
         try:
-            pid = int(self.lock_file.read_text().strip())
+            lock_content = self.lock_file.read_text().strip()
+            # Support both legacy format (just PID) and new format (PID:CREATE_TIME)
+            if ":" in lock_content:
+                pid_str, create_time_str = lock_content.split(":", 1)
+                pid = int(pid_str)
+                stored_create_time = float(create_time_str)
+            else:
+                # Legacy format - just PID
+                pid = int(lock_content)
+                stored_create_time = None
+
             if psutil.pid_exists(pid):
                 # Check if it's actually our agent process
                 try:
                     proc = psutil.Process(pid)
+                    # Verify it's the same process using creation time (handles PID reuse)
+                    if stored_create_time is not None:
+                        # Allow 1 second tolerance for creation time comparison
+                        if abs(proc.create_time() - stored_create_time) > 1.0:
+                            # Different process reused the PID - stale lock
+                            self.lock_file.unlink(missing_ok=True)
+                            return True
                     cmdline = " ".join(proc.cmdline())
                     if "autonomous_agent_demo.py" in cmdline:
                         return False  # Another agent is running
@@ -162,11 +190,34 @@ class AgentProcessManager:
             self.lock_file.unlink(missing_ok=True)
             return True
 
-    def _create_lock(self) -> None:
-        """Create lock file with current process PID."""
+    def _create_lock(self) -> bool:
+        """Atomically create lock file with current process PID and creation time.
+
+        Returns:
+            True if lock was created successfully, False if lock already exists.
+        """
         self.lock_file.parent.mkdir(parents=True, exist_ok=True)
-        if self.process:
-            self.lock_file.write_text(str(self.process.pid))
+        if not self.process:
+            return False
+
+        try:
+            # Get process creation time for PID reuse detection
+            create_time = psutil.Process(self.process.pid).create_time()
+            lock_content = f"{self.process.pid}:{create_time}"
+
+            # Atomic lock creation using O_CREAT | O_EXCL
+            # This prevents TOCTOU race conditions
+            import os
+            fd = os.open(str(self.lock_file), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, lock_content.encode())
+            os.close(fd)
+            return True
+        except FileExistsError:
+            # Another process beat us to it
+            return False
+        except (psutil.NoSuchProcess, OSError) as e:
+            logger.warning(f"Failed to create lock file: {e}")
+            return False
 
     def _remove_lock(self) -> None:
         """Remove lock file."""
@@ -185,6 +236,9 @@ class AgentProcessManager:
         if not self.process or not self.process.stdout:
             return
 
+        auth_error_detected = False
+        output_buffer = []  # Buffer recent lines for auth error detection
+
         try:
             loop = asyncio.get_running_loop()
             while True:
@@ -198,6 +252,18 @@ class AgentProcessManager:
                 decoded = line.decode("utf-8", errors="replace").rstrip()
                 sanitized = sanitize_output(decoded)
 
+                # Buffer recent output for auth error detection
+                output_buffer.append(decoded)
+                if len(output_buffer) > 20:
+                    output_buffer.pop(0)
+
+                # Check for auth errors
+                if not auth_error_detected and is_auth_error(decoded):
+                    auth_error_detected = True
+                    # Broadcast auth error help message
+                    for help_line in AUTH_ERROR_HELP.strip().split('\n'):
+                        await self._broadcast_output(help_line)
+
                 await self._broadcast_output(sanitized)
 
         except asyncio.CancelledError:
@@ -209,17 +275,32 @@ class AgentProcessManager:
             if self.process and self.process.poll() is not None:
                 exit_code = self.process.returncode
                 if exit_code != 0 and self.status == "running":
+                    # Check buffered output for auth errors if we haven't detected one yet
+                    if not auth_error_detected:
+                        combined_output = '\n'.join(output_buffer)
+                        if is_auth_error(combined_output):
+                            for help_line in AUTH_ERROR_HELP.strip().split('\n'):
+                                await self._broadcast_output(help_line)
                     self.status = "crashed"
                 elif self.status == "running":
                     self.status = "stopped"
                 self._remove_lock()
 
-    async def start(self, yolo_mode: bool = False) -> tuple[bool, str]:
+    async def start(
+        self,
+        yolo_mode: bool = False,
+        model: str | None = None,
+        parallel_mode: bool = False,
+        max_concurrency: int | None = None,
+    ) -> tuple[bool, str]:
         """
         Start the agent as a subprocess.
 
         Args:
             yolo_mode: If True, run in YOLO mode (no browser testing)
+            model: Model to use (e.g., claude-opus-4-5-20251101)
+            parallel_mode: If True, run multiple features in parallel
+            max_concurrency: Max concurrent agents (default 3 if parallel enabled)
 
         Returns:
             Tuple of (success, message)
@@ -230,8 +311,11 @@ class AgentProcessManager:
         if not self._check_lock():
             return False, "Another agent instance is already running for this project"
 
-        # Store YOLO mode for status queries
+        # Store for status queries
         self.yolo_mode = yolo_mode
+        self.model = model
+        self.parallel_mode = parallel_mode
+        self.max_concurrency = max_concurrency
 
         # Build command - pass absolute path to project directory
         cmd = [
@@ -241,9 +325,18 @@ class AgentProcessManager:
             str(self.project_dir.resolve()),
         ]
 
+        # Add --model flag if model is specified
+        if model:
+            cmd.extend(["--model", model])
+
         # Add --yolo flag if YOLO mode is enabled
         if yolo_mode:
             cmd.append("--yolo")
+
+        # Add --parallel flag if parallel mode is enabled
+        if parallel_mode:
+            cmd.append("--parallel")
+            cmd.append(str(max_concurrency or 3))  # Default to 3 concurrent agents
 
         try:
             # Start subprocess with piped stdout/stderr
@@ -255,7 +348,17 @@ class AgentProcessManager:
                 cwd=str(self.project_dir),
             )
 
-            self._create_lock()
+            # Atomic lock creation - if it fails, another process beat us
+            if not self._create_lock():
+                # Kill the process we just started since we couldn't get the lock
+                self.process.terminate()
+                try:
+                    self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                self.process = None
+                return False, "Another agent instance is already running for this project"
+
             self.started_at = datetime.now()
             self.status = "running"
 
@@ -306,6 +409,9 @@ class AgentProcessManager:
             self.process = None
             self.started_at = None
             self.yolo_mode = False  # Reset YOLO mode
+            self.model = None  # Reset model
+            self.parallel_mode = False  # Reset parallel mode
+            self.max_concurrency = None  # Reset concurrency
 
             return True, "Agent stopped"
         except Exception as e:
@@ -387,6 +493,9 @@ class AgentProcessManager:
             "pid": self.pid,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "yolo_mode": self.yolo_mode,
+            "model": self.model,
+            "parallel_mode": self.parallel_mode,
+            "max_concurrency": self.max_concurrency,
         }
 
 
@@ -423,3 +532,89 @@ async def cleanup_all_managers() -> None:
 
     with _managers_lock:
         _managers.clear()
+
+
+def cleanup_orphaned_locks() -> int:
+    """
+    Clean up orphaned lock files from previous server runs.
+
+    Scans all registered projects for .agent.lock files and removes them
+    if the referenced process is no longer running.
+
+    Returns:
+        Number of orphaned lock files cleaned up
+    """
+    import sys
+    root = Path(__file__).parent.parent.parent
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+
+    from registry import list_registered_projects
+
+    cleaned = 0
+    try:
+        projects = list_registered_projects()
+        for name, info in projects.items():
+            project_path = Path(info.get("path", ""))
+            if not project_path.exists():
+                continue
+
+            lock_file = project_path / ".agent.lock"
+            if not lock_file.exists():
+                continue
+
+            try:
+                lock_content = lock_file.read_text().strip()
+                # Support both legacy format (just PID) and new format (PID:CREATE_TIME)
+                if ":" in lock_content:
+                    pid_str, create_time_str = lock_content.split(":", 1)
+                    pid = int(pid_str)
+                    stored_create_time = float(create_time_str)
+                else:
+                    # Legacy format - just PID
+                    pid = int(lock_content)
+                    stored_create_time = None
+
+                # Check if process is still running
+                if psutil.pid_exists(pid):
+                    try:
+                        proc = psutil.Process(pid)
+                        # Verify it's the same process using creation time (handles PID reuse)
+                        if stored_create_time is not None:
+                            if abs(proc.create_time() - stored_create_time) > 1.0:
+                                # Different process reused the PID - stale lock
+                                lock_file.unlink(missing_ok=True)
+                                cleaned += 1
+                                logger.info("Removed orphaned lock file for project '%s' (PID reused)", name)
+                                continue
+                        cmdline = " ".join(proc.cmdline())
+                        if "autonomous_agent_demo.py" in cmdline:
+                            # Process is still running, don't remove
+                            logger.info(
+                                "Found running agent for project '%s' (PID %d)",
+                                name, pid
+                            )
+                            continue
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+
+                # Process not running or not our agent - remove stale lock
+                lock_file.unlink(missing_ok=True)
+                cleaned += 1
+                logger.info("Removed orphaned lock file for project '%s'", name)
+
+            except (ValueError, OSError) as e:
+                # Invalid lock file content - remove it
+                logger.warning(
+                    "Removing invalid lock file for project '%s': %s", name, e
+                )
+                lock_file.unlink(missing_ok=True)
+                cleaned += 1
+
+    except Exception as e:
+        logger.error("Error during orphan cleanup: %s", e)
+
+    if cleaned:
+        logger.info("Cleaned up %d orphaned lock file(s)", cleaned)
+
+    return cleaned

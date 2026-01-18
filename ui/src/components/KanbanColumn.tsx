@@ -1,12 +1,18 @@
 import { FeatureCard } from './FeatureCard'
-import type { Feature } from '../lib/types'
+import { Plus, Sparkles } from 'lucide-react'
+import type { Feature, ActiveAgent } from '../lib/types'
 
 interface KanbanColumnProps {
   title: string
   count: number
   features: Feature[]
+  allFeatures?: Feature[]  // For dependency status calculation
+  activeAgents?: ActiveAgent[]  // Active agents for showing which agent is working on a feature
   color: 'pending' | 'progress' | 'done'
   onFeatureClick: (feature: Feature) => void
+  onAddFeature?: () => void
+  onExpandProject?: () => void
+  showExpandButton?: boolean
 }
 
 const colorMap = {
@@ -19,9 +25,18 @@ export function KanbanColumn({
   title,
   count,
   features,
+  allFeatures = [],
+  activeAgents = [],
   color,
   onFeatureClick,
+  onAddFeature,
+  onExpandProject,
+  showExpandButton,
 }: KanbanColumnProps) {
+  // Create a map of feature ID to active agent for quick lookup
+  const agentByFeatureId = new Map(
+    activeAgents.map(agent => [agent.featureId, agent])
+  )
   return (
     <div
       className="neo-card overflow-hidden"
@@ -32,10 +47,34 @@ export function KanbanColumn({
         className="px-4 py-3 border-b-3 border-[var(--color-neo-border)]"
         style={{ backgroundColor: colorMap[color] }}
       >
-        <h2 className="font-display text-lg font-bold uppercase flex items-center justify-between text-[var(--color-neo-text)]">
-          {title}
-          <span className="neo-badge bg-white text-[var(--color-neo-text)]">{count}</span>
-        </h2>
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-lg font-bold uppercase flex items-center gap-2 text-[var(--color-neo-text-on-bright)]">
+            {title}
+            <span className="neo-badge bg-[var(--color-neo-card)] text-[var(--color-neo-text)]">{count}</span>
+          </h2>
+          {(onAddFeature || onExpandProject) && (
+            <div className="flex items-center gap-2">
+              {onAddFeature && (
+                <button
+                  onClick={onAddFeature}
+                  className="neo-btn neo-btn-primary text-sm py-1.5 px-2"
+                  title="Add new feature (N)"
+                >
+                  <Plus size={16} />
+                </button>
+              )}
+              {onExpandProject && showExpandButton && (
+                <button
+                  onClick={onExpandProject}
+                  className="neo-btn bg-[var(--color-neo-progress)] text-[var(--color-neo-text-on-bright)] text-sm py-1.5 px-2"
+                  title="Expand project with AI (E)"
+                >
+                  <Sparkles size={16} />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Cards */}
@@ -55,6 +94,8 @@ export function KanbanColumn({
                 feature={feature}
                 onClick={() => onFeatureClick(feature)}
                 isInProgress={color === 'progress'}
+                allFeatures={allFeatures}
+                activeAgent={agentByFeatureId.get(feature.id)}
               />
             </div>
           ))

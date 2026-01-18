@@ -3,7 +3,29 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import type { WSMessage, AgentStatus } from '../lib/types'
+import type {
+  WSMessage,
+  AgentStatus,
+  DevServerStatus,
+  ActiveAgent,
+  AgentMascot,
+  AgentLogEntry,
+} from '../lib/types'
+
+// Activity item for the feed
+interface ActivityItem {
+  agentName: string
+  thought: string
+  timestamp: string
+  featureId: number
+}
+
+// Celebration trigger for overlay
+interface CelebrationTrigger {
+  agentName: AgentMascot
+  featureName: string
+  featureId: number
+}
 
 interface WebSocketState {
   progress: {
@@ -13,11 +35,24 @@ interface WebSocketState {
     percentage: number
   }
   agentStatus: AgentStatus
-  logs: Array<{ line: string; timestamp: string }>
+  logs: Array<{ line: string; timestamp: string; featureId?: number; agentIndex?: number }>
   isConnected: boolean
+  devServerStatus: DevServerStatus
+  devServerUrl: string | null
+  devLogs: Array<{ line: string; timestamp: string }>
+  // Multi-agent state
+  activeAgents: ActiveAgent[]
+  recentActivity: ActivityItem[]
+  // Per-agent logs for debugging (indexed by agentIndex)
+  agentLogs: Map<number, AgentLogEntry[]>
+  // Celebration queue to handle rapid successes without race conditions
+  celebrationQueue: CelebrationTrigger[]
+  celebration: CelebrationTrigger | null
 }
 
 const MAX_LOGS = 100 // Keep last 100 log lines
+const MAX_ACTIVITY = 20 // Keep last 20 activity items
+const MAX_AGENT_LOGS = 500 // Keep last 500 log lines per agent
 
 export function useProjectWebSocket(projectName: string | null) {
   const [state, setState] = useState<WebSocketState>({
@@ -25,6 +60,14 @@ export function useProjectWebSocket(projectName: string | null) {
     agentStatus: 'stopped',
     logs: [],
     isConnected: false,
+    devServerStatus: 'stopped',
+    devServerUrl: null,
+    devLogs: [],
+    activeAgents: [],
+    recentActivity: [],
+    agentLogs: new Map(),
+    celebrationQueue: [],
+    celebration: null,
   })
 
   const wsRef = useRef<WebSocket | null>(null)
@@ -73,17 +116,163 @@ export function useProjectWebSocket(projectName: string | null) {
               break
 
             case 'log':
+              setState(prev => {
+                // Update global logs
+                const newLogs = [
+                  ...prev.logs.slice(-MAX_LOGS + 1),
+                  {
+                    line: message.line,
+                    timestamp: message.timestamp,
+                    featureId: message.featureId,
+                    agentIndex: message.agentIndex,
+                  },
+                ]
+
+                // Also store in per-agent logs if we have an agentIndex
+                let newAgentLogs = prev.agentLogs
+                if (message.agentIndex !== undefined) {
+                  newAgentLogs = new Map(prev.agentLogs)
+                  const existingLogs = newAgentLogs.get(message.agentIndex) || []
+                  const logEntry: AgentLogEntry = {
+                    line: message.line,
+                    timestamp: message.timestamp,
+                    type: 'output',
+                  }
+                  newAgentLogs.set(
+                    message.agentIndex,
+                    [...existingLogs.slice(-MAX_AGENT_LOGS + 1), logEntry]
+                  )
+                }
+
+                return { ...prev, logs: newLogs, agentLogs: newAgentLogs }
+              })
+              break
+
+            case 'feature_update':
+              // Feature updates will trigger a refetch via React Query
+              break
+
+            case 'agent_update':
+              setState(prev => {
+                // Log state change to per-agent logs
+                const newAgentLogs = new Map(prev.agentLogs)
+                const existingLogs = newAgentLogs.get(message.agentIndex) || []
+                const stateLogEntry: AgentLogEntry = {
+                  line: `[STATE] ${message.state}${message.thought ? `: ${message.thought}` : ''}`,
+                  timestamp: message.timestamp,
+                  type: message.state === 'error' ? 'error' : 'state_change',
+                }
+                newAgentLogs.set(
+                  message.agentIndex,
+                  [...existingLogs.slice(-MAX_AGENT_LOGS + 1), stateLogEntry]
+                )
+
+                // Get current logs for this agent to attach to ActiveAgent
+                const agentLogsArray = newAgentLogs.get(message.agentIndex) || []
+
+                // Update or add the agent in activeAgents
+                const existingAgentIdx = prev.activeAgents.findIndex(
+                  a => a.agentIndex === message.agentIndex
+                )
+
+                let newAgents: ActiveAgent[]
+                if (message.state === 'success' || message.state === 'error') {
+                  // Remove agent from active list on completion (success or failure)
+                  // But keep the logs in agentLogs map for debugging
+                  newAgents = prev.activeAgents.filter(
+                    a => a.agentIndex !== message.agentIndex
+                  )
+                } else if (existingAgentIdx >= 0) {
+                  // Update existing agent
+                  newAgents = [...prev.activeAgents]
+                  newAgents[existingAgentIdx] = {
+                    agentIndex: message.agentIndex,
+                    agentName: message.agentName,
+                    featureId: message.featureId,
+                    featureName: message.featureName,
+                    state: message.state,
+                    thought: message.thought,
+                    timestamp: message.timestamp,
+                    logs: agentLogsArray,
+                  }
+                } else {
+                  // Add new agent
+                  newAgents = [
+                    ...prev.activeAgents,
+                    {
+                      agentIndex: message.agentIndex,
+                      agentName: message.agentName,
+                      featureId: message.featureId,
+                      featureName: message.featureName,
+                      state: message.state,
+                      thought: message.thought,
+                      timestamp: message.timestamp,
+                      logs: agentLogsArray,
+                    },
+                  ]
+                }
+
+                // Add to activity feed if there's a thought
+                let newActivity = prev.recentActivity
+                if (message.thought) {
+                  newActivity = [
+                    {
+                      agentName: message.agentName,
+                      thought: message.thought,
+                      timestamp: message.timestamp,
+                      featureId: message.featureId,
+                    },
+                    ...prev.recentActivity.slice(0, MAX_ACTIVITY - 1),
+                  ]
+                }
+
+                // Handle celebration queue on success
+                let newCelebrationQueue = prev.celebrationQueue
+                let newCelebration = prev.celebration
+
+                if (message.state === 'success') {
+                  const newCelebrationItem: CelebrationTrigger = {
+                    agentName: message.agentName,
+                    featureName: message.featureName,
+                    featureId: message.featureId,
+                  }
+
+                  // If no celebration is showing, show this one immediately
+                  // Otherwise, add to queue
+                  if (!prev.celebration) {
+                    newCelebration = newCelebrationItem
+                  } else {
+                    newCelebrationQueue = [...prev.celebrationQueue, newCelebrationItem]
+                  }
+                }
+
+                return {
+                  ...prev,
+                  activeAgents: newAgents,
+                  agentLogs: newAgentLogs,
+                  recentActivity: newActivity,
+                  celebrationQueue: newCelebrationQueue,
+                  celebration: newCelebration,
+                }
+              })
+              break
+
+            case 'dev_log':
               setState(prev => ({
                 ...prev,
-                logs: [
-                  ...prev.logs.slice(-MAX_LOGS + 1),
+                devLogs: [
+                  ...prev.devLogs.slice(-MAX_LOGS + 1),
                   { line: message.line, timestamp: message.timestamp },
                 ],
               }))
               break
 
-            case 'feature_update':
-              // Feature updates will trigger a refetch via React Query
+            case 'dev_server_status':
+              setState(prev => ({
+                ...prev,
+                devServerStatus: message.status,
+                devServerUrl: message.url,
+              }))
               break
 
             case 'pong':
@@ -123,8 +312,37 @@ export function useProjectWebSocket(projectName: string | null) {
     }
   }, [])
 
+  // Clear celebration and show next one from queue if available
+  const clearCelebration = useCallback(() => {
+    setState(prev => {
+      // Pop the next celebration from the queue if available
+      const [nextCelebration, ...remainingQueue] = prev.celebrationQueue
+      return {
+        ...prev,
+        celebration: nextCelebration || null,
+        celebrationQueue: remainingQueue,
+      }
+    })
+  }, [])
+
   // Connect when project changes
   useEffect(() => {
+    // Reset state when project changes to clear stale data
+    setState({
+      progress: { passing: 0, in_progress: 0, total: 0, percentage: 0 },
+      agentStatus: 'stopped',
+      logs: [],
+      isConnected: false,
+      devServerStatus: 'stopped',
+      devServerUrl: null,
+      devLogs: [],
+      activeAgents: [],
+      recentActivity: [],
+      agentLogs: new Map(),
+      celebrationQueue: [],
+      celebration: null,
+    })
+
     if (!projectName) {
       // Disconnect if no project
       if (wsRef.current) {
@@ -156,8 +374,31 @@ export function useProjectWebSocket(projectName: string | null) {
     setState(prev => ({ ...prev, logs: [] }))
   }, [])
 
+  // Clear dev logs function
+  const clearDevLogs = useCallback(() => {
+    setState(prev => ({ ...prev, devLogs: [] }))
+  }, [])
+
+  // Get logs for a specific agent (useful for debugging even after agent completes/fails)
+  const getAgentLogs = useCallback((agentIndex: number): AgentLogEntry[] => {
+    return state.agentLogs.get(agentIndex) || []
+  }, [state.agentLogs])
+
+  // Clear logs for a specific agent
+  const clearAgentLogs = useCallback((agentIndex: number) => {
+    setState(prev => {
+      const newAgentLogs = new Map(prev.agentLogs)
+      newAgentLogs.delete(agentIndex)
+      return { ...prev, agentLogs: newAgentLogs }
+    })
+  }, [])
+
   return {
     ...state,
     clearLogs,
+    clearDevLogs,
+    clearCelebration,
+    getAgentLogs,
+    clearAgentLogs,
   }
 }

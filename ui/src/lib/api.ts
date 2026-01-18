@@ -9,6 +9,10 @@ import type {
   FeatureListResponse,
   Feature,
   FeatureCreate,
+  FeatureUpdate,
+  FeatureBulkCreate,
+  FeatureBulkCreateResponse,
+  DependencyGraph,
   AgentStatusResponse,
   AgentActionResponse,
   SetupStatus,
@@ -16,6 +20,12 @@ import type {
   PathValidationResponse,
   AssistantConversation,
   AssistantConversationDetail,
+  Settings,
+  SettingsUpdate,
+  ModelsResponse,
+  DevServerStatusResponse,
+  DevServerConfig,
+  TerminalInfo,
 } from './types'
 
 const API_BASE = '/api'
@@ -111,6 +121,71 @@ export async function skipFeature(projectName: string, featureId: number): Promi
   })
 }
 
+export async function updateFeature(
+  projectName: string,
+  featureId: number,
+  update: FeatureUpdate
+): Promise<Feature> {
+  return fetchJSON(`/projects/${encodeURIComponent(projectName)}/features/${featureId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(update),
+  })
+}
+
+export async function createFeaturesBulk(
+  projectName: string,
+  bulk: FeatureBulkCreate
+): Promise<FeatureBulkCreateResponse> {
+  return fetchJSON(`/projects/${encodeURIComponent(projectName)}/features/bulk`, {
+    method: 'POST',
+    body: JSON.stringify(bulk),
+  })
+}
+
+// ============================================================================
+// Dependency Graph API
+// ============================================================================
+
+export async function getDependencyGraph(projectName: string): Promise<DependencyGraph> {
+  return fetchJSON(`/projects/${encodeURIComponent(projectName)}/features/graph`)
+}
+
+export async function addDependency(
+  projectName: string,
+  featureId: number,
+  dependencyId: number
+): Promise<{ success: boolean; feature_id: number; dependencies: number[] }> {
+  return fetchJSON(
+    `/projects/${encodeURIComponent(projectName)}/features/${featureId}/dependencies/${dependencyId}`,
+    { method: 'POST' }
+  )
+}
+
+export async function removeDependency(
+  projectName: string,
+  featureId: number,
+  dependencyId: number
+): Promise<{ success: boolean; feature_id: number; dependencies: number[] }> {
+  return fetchJSON(
+    `/projects/${encodeURIComponent(projectName)}/features/${featureId}/dependencies/${dependencyId}`,
+    { method: 'DELETE' }
+  )
+}
+
+export async function setDependencies(
+  projectName: string,
+  featureId: number,
+  dependencyIds: number[]
+): Promise<{ success: boolean; feature_id: number; dependencies: number[] }> {
+  return fetchJSON(
+    `/projects/${encodeURIComponent(projectName)}/features/${featureId}/dependencies`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ dependency_ids: dependencyIds }),
+    }
+  )
+}
+
 // ============================================================================
 // Agent API
 // ============================================================================
@@ -121,11 +196,19 @@ export async function getAgentStatus(projectName: string): Promise<AgentStatusRe
 
 export async function startAgent(
   projectName: string,
-  yoloMode: boolean = false
+  options: {
+    yoloMode?: boolean
+    parallelMode?: boolean
+    maxConcurrency?: number
+  } = {}
 ): Promise<AgentActionResponse> {
   return fetchJSON(`/projects/${encodeURIComponent(projectName)}/agent/start`, {
     method: 'POST',
-    body: JSON.stringify({ yolo_mode: yoloMode }),
+    body: JSON.stringify({
+      yolo_mode: options.yoloMode ?? false,
+      parallel_mode: options.parallelMode ?? false,
+      max_concurrency: options.maxConcurrency,
+    }),
   })
 }
 
@@ -275,4 +358,89 @@ export async function deleteAssistantConversation(
   )
 }
 
+// ============================================================================
+// Settings API
+// ============================================================================
 
+export async function getAvailableModels(): Promise<ModelsResponse> {
+  return fetchJSON('/settings/models')
+}
+
+export async function getSettings(): Promise<Settings> {
+  return fetchJSON('/settings')
+}
+
+export async function updateSettings(settings: SettingsUpdate): Promise<Settings> {
+  return fetchJSON('/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(settings),
+  })
+}
+
+// ============================================================================
+// Dev Server API
+// ============================================================================
+
+export async function getDevServerStatus(projectName: string): Promise<DevServerStatusResponse> {
+  return fetchJSON(`/projects/${encodeURIComponent(projectName)}/devserver/status`)
+}
+
+export async function startDevServer(
+  projectName: string,
+  command?: string
+): Promise<{ success: boolean; message: string }> {
+  return fetchJSON(`/projects/${encodeURIComponent(projectName)}/devserver/start`, {
+    method: 'POST',
+    body: JSON.stringify({ command }),
+  })
+}
+
+export async function stopDevServer(
+  projectName: string
+): Promise<{ success: boolean; message: string }> {
+  return fetchJSON(`/projects/${encodeURIComponent(projectName)}/devserver/stop`, {
+    method: 'POST',
+  })
+}
+
+export async function getDevServerConfig(projectName: string): Promise<DevServerConfig> {
+  return fetchJSON(`/projects/${encodeURIComponent(projectName)}/devserver/config`)
+}
+
+// ============================================================================
+// Terminal API
+// ============================================================================
+
+export async function listTerminals(projectName: string): Promise<TerminalInfo[]> {
+  return fetchJSON(`/terminal/${encodeURIComponent(projectName)}`)
+}
+
+export async function createTerminal(
+  projectName: string,
+  name?: string
+): Promise<TerminalInfo> {
+  return fetchJSON(`/terminal/${encodeURIComponent(projectName)}`, {
+    method: 'POST',
+    body: JSON.stringify({ name: name ?? null }),
+  })
+}
+
+export async function renameTerminal(
+  projectName: string,
+  terminalId: string,
+  name: string
+): Promise<TerminalInfo> {
+  return fetchJSON(`/terminal/${encodeURIComponent(projectName)}/${terminalId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ name }),
+  })
+}
+
+export async function deleteTerminal(
+  projectName: string,
+  terminalId: string
+): Promise<void> {
+  await fetchJSON(`/terminal/${encodeURIComponent(projectName)}/${terminalId}`, {
+    method: 'DELETE',
+  })
+}

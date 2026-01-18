@@ -1,5 +1,12 @@
 # Agent-generated output directories
 generations/
+automaker/
+
+nul
+issues/
+
+# Browser profiles for parallel agent execution
+.browser-profiles/
 
 # Log files
 logs/
@@ -126,6 +133,11 @@ poetry.lock
 Pipfile.lock
 
 # ===================
+# TypeScript
+# ===================
+*.tsbuildinfo
+
+# ===================
 # Misc
 # ===================
 *.bak
@@ -133,4 +145,4 @@ Pipfile.lock
 *.temp
 .tmp/
 .temp/
-*.tsbuildinfo
+tmpclaude-*-cwd

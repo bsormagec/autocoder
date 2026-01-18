@@ -19,6 +19,12 @@ Example Usage:
 
     # YOLO mode: rapid prototyping without browser testing
     python autonomous_agent_demo.py --project-dir my-app --yolo
+
+    # Parallel execution with 3 concurrent agents (default)
+    python autonomous_agent_demo.py --project-dir my-app --parallel
+
+    # Parallel execution with 5 concurrent agents
+    python autonomous_agent_demo.py --project-dir my-app --parallel 5
 """
 
 import argparse
@@ -33,29 +39,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from agent import run_autonomous_agent
-from registry import get_project_path
-
-
-def get_default_model() -> str:
-    """
-    Get the default model based on environment configuration.
-    
-    When CLAUDE_CODE_USE_BEDROCK=1, uses Bedrock inference profile from ANTHROPIC_MODEL.
-    Otherwise, uses standard Anthropic API model name.
-    """
-    if os.getenv("CLAUDE_CODE_USE_BEDROCK") == "1":
-        # Bedrock mode: use ANTHROPIC_MODEL env var or default inference profile
-        return os.getenv(
-            "ANTHROPIC_MODEL",
-            "us.anthropic.claude-opus-4-5-20251101-v1:0"
-        )
-    else:
-        # Standard Anthropic API
-        return "claude-opus-4-5-20251101"
-
-
-# Configuration
-DEFAULT_MODEL = get_default_model()
+from registry import DEFAULT_MODEL, get_project_path
 
 
 def parse_args() -> argparse.Namespace:
@@ -81,8 +65,8 @@ Examples:
   python autonomous_agent_demo.py --project-dir my-app --yolo
 
 Authentication:
-  Uses Claude CLI credentials from ~/.claude/.credentials.json
-  Run 'claude login' to authenticate (handled by start.bat/start.sh)
+  Uses Claude CLI authentication (run 'claude login' if not logged in)
+  Authentication is handled by start.bat/start.sh before this runs
         """,
     )
 
@@ -112,6 +96,24 @@ Authentication:
         action="store_true",
         default=False,
         help="Enable YOLO mode: rapid prototyping without browser testing",
+    )
+
+    parser.add_argument(
+        "--parallel",
+        "-p",
+        type=int,
+        nargs="?",
+        const=3,
+        default=None,
+        metavar="N",
+        help="Enable parallel execution with N concurrent agents (default: 3, max: 5)",
+    )
+
+    parser.add_argument(
+        "--feature-id",
+        type=int,
+        default=None,
+        help="Work on a specific feature ID only (used by parallel orchestrator)",
     )
 
     return parser.parse_args()
@@ -146,15 +148,30 @@ def main() -> None:
             return
 
     try:
-        # Run the agent (MCP server handles feature database)
-        asyncio.run(
-            run_autonomous_agent(
-                project_dir=project_dir,
-                model=args.model,
-                max_iterations=args.max_iterations,
-                yolo_mode=args.yolo,
+        if args.parallel is not None:
+            # Parallel execution mode
+            from parallel_orchestrator import run_parallel_orchestrator
+
+            print(f"Running in parallel mode with {args.parallel} concurrent agents")
+            asyncio.run(
+                run_parallel_orchestrator(
+                    project_dir=project_dir,
+                    max_concurrency=args.parallel,
+                    model=args.model,
+                    yolo_mode=args.yolo,
+                )
             )
-        )
+        else:
+            # Standard single-agent mode (MCP server handles feature database)
+            asyncio.run(
+                run_autonomous_agent(
+                    project_dir=project_dir,
+                    model=args.model,
+                    max_iterations=args.max_iterations,
+                    yolo_mode=args.yolo,
+                    feature_id=args.feature_id,
+                )
+            )
     except KeyboardInterrupt:
         print("\n\nInterrupted by user")
         print("To resume, run the same command again")

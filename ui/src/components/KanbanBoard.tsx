@@ -1,12 +1,22 @@
 import { KanbanColumn } from './KanbanColumn'
-import type { Feature, FeatureListResponse } from '../lib/types'
+import type { Feature, FeatureListResponse, ActiveAgent } from '../lib/types'
 
 interface KanbanBoardProps {
   features: FeatureListResponse | undefined
   onFeatureClick: (feature: Feature) => void
+  onAddFeature?: () => void
+  onExpandProject?: () => void
+  activeAgents?: ActiveAgent[]
 }
 
-export function KanbanBoard({ features, onFeatureClick }: KanbanBoardProps) {
+export function KanbanBoard({ features, onFeatureClick, onAddFeature, onExpandProject, activeAgents = [] }: KanbanBoardProps) {
+  const hasFeatures = features && (features.pending.length + features.in_progress.length + features.done.length) > 0
+
+  // Combine all features for dependency status calculation
+  const allFeatures = features
+    ? [...features.pending, ...features.in_progress, ...features.done]
+    : []
+
   if (!features) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -30,13 +40,20 @@ export function KanbanBoard({ features, onFeatureClick }: KanbanBoardProps) {
         title="Pending"
         count={features.pending.length}
         features={features.pending}
+        allFeatures={allFeatures}
+        activeAgents={activeAgents}
         color="pending"
         onFeatureClick={onFeatureClick}
+        onAddFeature={onAddFeature}
+        onExpandProject={onExpandProject}
+        showExpandButton={hasFeatures}
       />
       <KanbanColumn
         title="In Progress"
         count={features.in_progress.length}
         features={features.in_progress}
+        allFeatures={allFeatures}
+        activeAgents={activeAgents}
         color="progress"
         onFeatureClick={onFeatureClick}
       />
@@ -44,6 +61,8 @@ export function KanbanBoard({ features, onFeatureClick }: KanbanBoardProps) {
         title="Done"
         count={features.done.length}
         features={features.done}
+        allFeatures={allFeatures}
+        activeAgents={activeAgents}
         color="done"
         onFeatureClick={onFeatureClick}
       />
